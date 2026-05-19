@@ -1,0 +1,6 @@
+pandas==2.2.3
+streamlit==1.45.1
+openpyxl==3.1.5
+pyxlsb==1.0.10
+lxml==5.3.0
+html5lib==1.1
