@@ -47,6 +47,16 @@ The deployed app is stateless:
 - the cleaned CSV is returned for download
 - temporary input and output files are deleted automatically
 
+## Energy unit rule
+
+This cleaner only processes interval energy data in `kWh` or `MWh`.
+
+- `kWh` is used as-is
+- `MWh` is converted to `kWh`
+- reactive or non-energy units such as `kVArh` are ignored
+
+This rule applies to both the local batch workflow and the Streamlit upload flow.
+
 ## Upload limits in the app
 
 - Max files per upload: 50

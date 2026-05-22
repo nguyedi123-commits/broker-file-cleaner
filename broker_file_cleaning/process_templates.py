@@ -28,6 +28,7 @@ REGISTRY_PATH = BASE / "format_registry.json"
 
 SUPPORTED_EXT = {".xlsx", ".csv", ".xlsb", ".xls"}
 EXCLUDED_FILENAME_PATTERNS = ["Market Region Data Report"]
+SUPPORTED_ENERGY_UNITS = {"KWH": 1.0, "MWH": 1000.0}
 
 
 @dataclass
@@ -98,7 +99,8 @@ def parse_nem12(file_path: Path) -> pd.DataFrame:
                 nmi = parts[1 + offset] if len(parts) > 1 + offset else None
                 register_id = parts[3 + offset] if len(parts) > 3 + offset else "E1"
                 uom = parts[7 + offset] if len(parts) > 7 + offset else "kWh"
-                skip_stream = uom.lower() != "kwh"
+                unit_name, unit_multiplier = _normalise_energy_unit(uom)
+                skip_stream = unit_name not in SUPPORTED_ENERGY_UNITS
                 try:
                     raw_interval = parts[8 + offset] if len(parts) > 8 + offset else ""
                     interval_min = int(raw_interval) if raw_interval.strip() else 30
@@ -119,7 +121,7 @@ def parse_nem12(file_path: Path) -> pd.DataFrame:
                 key = (nmi, "export" if is_export else "consume")
                 for i, value in enumerate(values):
                     try:
-                        kwh = float(value)
+                        kwh = float(value) * unit_multiplier
                     except (ValueError, TypeError):
                         continue
                     dt = date + pd.Timedelta(minutes=interval_min * i)
@@ -287,6 +289,36 @@ def _nmi_from_filename(file_path: Path) -> str:
     return "UNKNOWN"
 
 
+def _normalise_energy_unit(value: object) -> tuple[str | None, float]:
+    if pd.isna(value):
+        return None, 1.0
+    unit = str(value).strip().upper()
+    multiplier = SUPPORTED_ENERGY_UNITS.get(unit)
+    return unit, multiplier if multiplier is not None else 1.0
+
+
+def _filter_supported_energy_rows(
+    df: pd.DataFrame,
+    unit_col: str,
+    value_col: str,
+) -> tuple[pd.DataFrame, set[str]]:
+    units = df[unit_col].apply(_normalise_energy_unit)
+    unit_names = units.str[0]
+    multipliers = units.str[1]
+    supported_mask = unit_names.isin(SUPPORTED_ENERGY_UNITS)
+    ignored_units = {
+        unit for unit in unit_names[~supported_mask].dropna().astype(str).unique() if unit
+    }
+
+    filtered = df.loc[supported_mask].copy()
+    if filtered.empty:
+        return filtered, ignored_units
+
+    filtered[value_col] = pd.to_numeric(filtered[value_col], errors="coerce").fillna(0)
+    filtered[value_col] = filtered[value_col] * multipliers[supported_mask].astype(float)
+    return filtered, ignored_units
+
+
 def normalise(file_path: Path, fmt: dict) -> pd.DataFrame:
     if fmt.get("multi_sheet_wide"):
         dt_col = fmt["datetime_col"]
@@ -350,12 +382,21 @@ def normalise(file_path: Path, fmt: dict) -> pd.DataFrame:
         exp_type = fmt.get("export_type", "Export")
 
         df["NMI"] = df[nmi_col].astype(str)
-        if unit_col:
+        if unit_col and unit_filt.upper() not in SUPPORTED_ENERGY_UNITS:
             df = df[df[unit_col].astype(str).str.upper() == unit_filt.upper()]
         df["_date"] = pd.to_datetime(df[date_col], dayfirst=True, errors="coerce")
         df = df.dropna(subset=["_date"])
 
         time_cols = [col for col in df.columns if re.match(r"^\d{2}:\d{2} - \d{2}:\d{2}$", str(col))]
+        if unit_col and unit_filt.upper() in SUPPORTED_ENERGY_UNITS:
+            unit_pairs = df[unit_col].apply(_normalise_energy_unit)
+            supported_mask = unit_pairs.str[0].isin(SUPPORTED_ENERGY_UNITS)
+            df = df.loc[supported_mask].copy()
+            if df.empty:
+                return pd.DataFrame(columns=["NMI", "dt", "consumption_kWh", "export_kWh"])
+            multipliers = unit_pairs.loc[supported_mask].str[1].astype(float)
+            for col in time_cols:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0) * multipliers
         melted = df[["NMI", "_date", ct_col] + time_cols].melt(
             id_vars=["NMI", "_date", ct_col], var_name="_interval", value_name="_kWh"
         )
@@ -451,8 +492,7 @@ def normalise(file_path: Path, fmt: dict) -> pd.DataFrame:
         unit_col = fmt["unit_col"]
         val_col = fmt["value_col"]
         dir_col = fmt["direction_col"]
-        df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0)
-        kwh_rows = df[df[unit_col] == fmt["unit_filter"]]
+        kwh_rows, _ = _filter_supported_energy_rows(df, unit_col, val_col)
         consume = (
             kwh_rows[kwh_rows[dir_col] == fmt["import_direction"]]
             .groupby(["NMI", "dt"])[val_col]
@@ -475,7 +515,16 @@ def normalise(file_path: Path, fmt: dict) -> pd.DataFrame:
         val_col = fmt["value_col"]
         imp_ch = fmt["import_channel"]
         exp_ch = fmt["export_channel"]
-        df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0)
+        unit_col = fmt.get("unit_col")
+        if unit_col:
+            unit_filter = fmt.get("unit_filter", "KWH")
+            if unit_filter.upper() in SUPPORTED_ENERGY_UNITS:
+                df, _ = _filter_supported_energy_rows(df, unit_col, val_col)
+            else:
+                df = df[df[unit_col].astype(str).str.upper() == unit_filter.upper()].copy()
+                df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0)
+        else:
+            df[val_col] = pd.to_numeric(df[val_col], errors="coerce").fillna(0)
         consume = (
             df[df[ch_col] == imp_ch]
             .groupby(["NMI", "dt"])[val_col]

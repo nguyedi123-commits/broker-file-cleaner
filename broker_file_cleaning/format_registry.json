@@ -962,6 +962,38 @@
       "consumption_col": "kwh",
       "export_col": "generated_kwh",
       "interval_min": 30
+    },
+    {
+      "id": "format_67",
+      "description": "Interval export CSV: NMI + Stream E1/B1 + Start Date + Value + Unit of Measure, 30-min, ignore reactive streams/units",
+      "file_type": "csv",
+      "skip_rows": 0,
+      "fingerprint_columns": ["NMI", "Stream", "Start Date", "Value", "Quality", "Unit of Measure"],
+      "nmi_col": "NMI",
+      "channel_col": "Stream",
+      "import_channel": "E1",
+      "export_channel": "B1",
+      "value_col": "Value",
+      "unit_col": "Unit of Measure",
+      "unit_filter": "kWh",
+      "datetime_cols": ["Start Date"],
+      "datetime_type": "dayfirst",
+      "datetime_is_end": false,
+      "interval_min": 30
+    },
+    {
+      "id": "format_68",
+      "description": "Quarter-hour xlsx: NMI, Read Date/Time European dot-date, kWh consumption only, ignore reactive columns, 15-min",
+      "file_type": "xlsx",
+      "skip_rows": 0,
+      "fingerprint_columns": ["NMI", "Read Date/Time", "kWh", "kW", "Kvarh", "Kvar", "kVA", "PF", "E1", "Q1"],
+      "nmi_col": "NMI",
+      "datetime_cols": ["Read Date/Time"],
+      "datetime_type": "%d.%m.%Y %H:%M:%S",
+      "datetime_is_end": false,
+      "consumption_col": "kWh",
+      "export_col": null,
+      "interval_min": 15
     }
   ]
 }

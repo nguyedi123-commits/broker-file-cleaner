@@ -50,6 +50,10 @@ st.title("Broker File Cleaner")
 st.caption(
     "Upload raw broker meter files, clean them into one standard CSV, and download the result."
 )
+st.caption(
+    "Energy-only rule: this cleaner only processes interval data in kWh or MWh. "
+    "Reactive or non-energy units such as kVArh are ignored."
+)
 
 with st.sidebar:
     st.subheader("Limits")
@@ -57,6 +61,8 @@ with st.sidebar:
     st.write(f"Total batch size: `{MAX_TOTAL_MB} MB`")
     st.write(f"Single file size: `{MAX_SINGLE_MB} MB`")
     st.write("Supported types: `.csv`, `.xlsx`, `.xlsb`, `.xls`")
+    st.write("Supported energy units: `kWh`, `MWh`")
+    st.write("Ignored units: `kVArh` and other non-energy units")
 
 uploaded_files = st.file_uploader(
     "Upload raw files",
