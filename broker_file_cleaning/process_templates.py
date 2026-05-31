@@ -13,6 +13,7 @@ import json
 import re
 import shutil
 import traceback
+import csv
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -70,10 +71,25 @@ def load_registry(registry_path: Path = REGISTRY_PATH) -> list[dict]:
 def is_nem12(file_path: Path) -> bool:
     try:
         with open(file_path, encoding="utf-8", errors="ignore") as f:
-            first = f.readline()
-            return first.startswith("100,NEM12") or first.startswith("200,")
+            for line in f:
+                first = line.lstrip("\ufeff").strip().strip('"')
+                if not first:
+                    continue
+                return first.startswith("100,NEM12") or first.startswith("200,")
+            return False
     except Exception:
         return False
+
+
+def _nem12_value_count(parts: list[str]) -> int:
+    count = 0
+    for value in parts[2:]:
+        try:
+            float(value)
+            count += 1
+        except (TypeError, ValueError):
+            break
+    return count
 
 
 def parse_nem12(file_path: Path) -> pd.DataFrame:
@@ -87,9 +103,10 @@ def parse_nem12(file_path: Path) -> pd.DataFrame:
     is_export = False
     skip_stream = False
 
-    with open(file_path, encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            parts = line.strip().split(",")
+    with open(file_path, encoding="utf-8", errors="ignore", newline="") as f:
+        reader = csv.reader(f)
+        for raw_parts in reader:
+            parts = [part.lstrip("\ufeff").strip() for part in raw_parts]
             if not parts or not parts[0]:
                 continue
             rec = parts[0]
@@ -112,7 +129,10 @@ def parse_nem12(file_path: Path) -> pd.DataFrame:
                     blocks[key] = []
 
             elif rec == "300" and nmi and not skip_stream:
-                n_intervals = 1440 // interval_min
+                value_count = _nem12_value_count(parts)
+                if value_count and 1440 % value_count == 0:
+                    interval_min = 1440 // value_count
+                n_intervals = value_count or (1440 // interval_min)
                 try:
                     date = pd.to_datetime(parts[1], format="%Y%m%d")
                 except Exception:
